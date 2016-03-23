@@ -155,7 +155,9 @@ if __name__ == "__main__":
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
     developerKey=DEVELOPER_KEY)
 
-    stars = findStars("fitness",300,youtube)
+    stars = findStars("makeup",300,youtube)
+
+    print stars
 
     for key in stars:
         try:
