@@ -1,7 +1,15 @@
 #!/usr/bin/python
-#Fandemic YouTube Scraper
-#main.py
+"""
+Title: Fandemic Social Media Star Finder
 
+Description: Finds all youtubers related to specified
+             keywords and subscriber count and gathers info.
+             After that it branches off to other social Media
+             outlets including Google+ and Instagram
+             to finish gathering info.
+"""
+
+import thread
 from apiclient.discovery import build
 from apiclient.errors import HttpError
 from oauth2client.tools import argparser
@@ -11,25 +19,69 @@ import re
 import urllib2
 from bs4 import BeautifulSoup as soup
 
-regex = re.compile(("([a-z0-9!#$%&'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+\/=?^_`"
-                    "{|}~-]+)*(@|\sat\s)(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(\.|"
-                    "\sdot\s))+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)"))
+#===============SETTINGS(only make changes here!)==============#
+KEYWORDS = ["gym","fitness","aesthetics","bodybuilding","workout"]
+MAX_NUM_RESULTS = 500
+SEARCH_DEPTH = 5
+MIN_SUBS = 10000
+MAX_SUBS = 100000
+#================================================================#
 
+#===================== API KEYS =========================#
 DEVELOPER_KEY = "AIzaSyCrr6e_SQhl64jKQnmkNZ2Xcf1EthBgBgU"
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
+#========================================================#
+
+#=================================Shitty regex================================#
+regex = re.compile(("([a-z0-9!#$%&'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+\/=?^_`"
+                    "{|}~-]+)*(@|\sat\s)(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(\.|"
+                    "\sdot\s))+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)"))
+#==============================================================================#
+
+#==============================================================================#
+stars = {}
+#==============================================================================
+
+#============================== MAIN ==========================================#
+def main():
+
+    try:
+
+        #stars = findStars("makeup",300)
+        thread.start_new_thread( findStars, ("bodybuilding", 150) )
+        thread.start_new_thread( findStars, ("aesthetics", 150) )
+
+        '''
+        for key in stars:
+          try:
+              print stars[key]["googlePlusUserId"]
+              #print stars[key]["email"]
+          except KeyError:
+              print "error"
+        '''
+
+    except HttpError, e:
+        print "An HTTP error %d occurred:\n%s" % (e.resp.status, e.content)
+    except:
+        print "Error: unable to start thread"
+
+    while 1:
+        pass
+#==============================================================================#
 
 
 #=================== findChannels ==================#
 #params -> query string
 #params -> number of channels
 #returns a big dictionary with the stars info
-def findStars(query_string,num_channels,youtube):
+def findStars(query_string,num_channels):
+
+    youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+    developerKey=DEVELOPER_KEY)
 
     pageToken = ""
     i = 50
-
-    stars = {}
 
     while (i <= num_channels):
         channels = []
@@ -57,19 +109,14 @@ def findStars(query_string,num_channels,youtube):
         i += 50
 
         #channelList = ",".join(channels)
-        channelList = parseChannels(channels,10000,100000,youtube) #generate list of parsed channels
-        tempStars = appendYoutubeInfo(channelList)
+        channelList = getChannels(channels,10000,100000,youtube) #generate list of parsed channels
+        tempStars = appendYoutubeInfo(channelList,youtube)
         stars.update(appendGoogleInfo(tempStars))
 
 
-    print str(len(stars)) + " channels gathered"
-
-    return stars
-
-
-#============= parseChannels ==============#
+#============= get channels ==============#
 #args -> comma seperated of youtube channels
-def parseChannels(channels,min_fc,max_fc,youtube):
+def getChannels(channels,min_fc,max_fc,youtube):
 
     parsedChannels = []
     channelList = ",".join(channels)
@@ -96,15 +143,16 @@ def parseChannels(channels,min_fc,max_fc,youtube):
     return parsedChannels
 
 #Add all the data for a youtube star that is missing
-def appendYoutubeInfo(channels):
+def appendYoutubeInfo(channels,youtube):
 
-    stars = {}
+    tempStars = {}
     channelList = ",".join(channels)
 
     search_response = youtube.channels().list(
-     part="contentDetails,contentOwnerDetails",
+     part="snippet,statistics,contentDetails,brandingSettings",
      id=channelList,
     ).execute()
+
 
     #print search_response
     for search_result in search_response.get("items", []):
@@ -113,29 +161,34 @@ def appendYoutubeInfo(channels):
         ID = search_result["id"]
 
 
+        emails = get_emails(search_result["snippet"]["description"])
+        for email in emails:
+            print email
 
-        stars[ID] = search_result["contentDetails"]
 
-    return stars
+
+        tempStars[ID] = search_result["contentDetails"]
+
+    return tempStars
 
 
 #Checks if the stars google+ profile has an email address
-def appendGoogleInfo(stars):
+def appendGoogleInfo(tempStars):
 
-    for key in stars:
+    for key in tempStars:
 
         try:
-            url = "https://plus.google.com/" + stars[key]["googlePlusUserId"] + "/about"
+            url = "https://plus.google.com/" + tempStars[key]["googlePlusUserId"] + "/about"
             web_soup = soup(urllib2.urlopen(url),'lxml')
             contact = web_soup.find(name="div", attrs={'role': 'main'})
             emails = get_emails(str(contact))
             for email in emails:
                 print email
-                stars[key]["email"] = email
+                tempStars[key]["email"] = email
         except KeyError:
-            print "fuck"
+            print "fuckin key error"
 
-    return stars
+    return tempStars
 
 #Append the description
 def appendInstaInfo(stars):
@@ -148,26 +201,4 @@ def get_emails(s):
     return (email[0] for email in re.findall(regex, s) if not email[0].startswith('//'))
 
 
-if __name__ == "__main__":
-
-  try:
-
-    youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
-    developerKey=DEVELOPER_KEY)
-
-    stars = findStars("makeup",300,youtube)
-
-    print stars
-
-    for key in stars:
-        try:
-            print stars[key]["googlePlusUserId"]
-            #print stars[key]["email"]
-        except KeyError:
-            print "error"
-
-    #for email in get_emails("David Laid 18 years old MRHS I DO NOT HAVE A KIK david.laid91@gmail.com youtu.be/n-uWtKO6JDo"):
-    #    print email
-
-  except HttpError, e:
-    print "An HTTP error %d occurred:\n%s" % (e.resp.status, e.content)
+main()
