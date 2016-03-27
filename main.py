@@ -9,6 +9,7 @@ Description: Finds all youtubers related to specified
              to finish gathering info.
 """
 
+import csv
 import thread
 from apiclient.discovery import build
 from apiclient.errors import HttpError
@@ -20,11 +21,11 @@ import urllib2
 from bs4 import BeautifulSoup as soup
 
 #===============SETTINGS(only make changes here!)==============#
-KEYWORDS = ["gym","fitness","aesthetics","bodybuilding","workout"]
+KEYWORDS = ["gym","fitness"]
 MAX_NUM_RESULTS = 500
-SEARCH_DEPTH = 5
+SEARCH_DEPTH = 1
 MIN_SUBS = 10000
-MAX_SUBS = 100000
+MAX_SUBS = 150000
 #================================================================#
 
 #===================== API KEYS =========================#
@@ -39,18 +40,13 @@ regex = re.compile(("([a-z0-9!#$%&'*+\/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+\/=?^_`"
                     "\sdot\s))+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)"))
 #==============================================================================#
 
-#==============================================================================#
-stars = {}
-#==============================================================================
-
 #============================== MAIN ==========================================#
 def main():
 
     try:
 
-        #stars = findStars("makeup",300)
-        thread.start_new_thread( findStars, ("bodybuilding", 150) )
-        thread.start_new_thread( findStars, ("aesthetics", 150) )
+        for keyword in KEYWORDS:
+            thread.start_new_thread( findStars, (keyword, 150) )
 
         '''
         for key in stars:
@@ -75,15 +71,15 @@ def main():
 #params -> query string
 #params -> number of channels
 #returns a big dictionary with the stars info
-def findStars(query_string,num_channels):
+def findStars(query_string, num):
 
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
     developerKey=DEVELOPER_KEY)
 
     pageToken = ""
-    i = 50
+    i = 1
 
-    while (i <= num_channels):
+    while (i <= SEARCH_DEPTH):
         channels = []
        # Call the search.list method to retrieve results matching the specified
        # query term.
@@ -104,19 +100,22 @@ def findStars(query_string,num_channels):
                 channels.append(search_result["id"]["channelId"])
 
         pageToken = search_response["nextPageToken"]
-        print "Page " + str(i/50) + "... " + pageToken
+        print "Page " + str(i) + "... " + pageToken
 
-        i += 50
+        i += 1
 
         #channelList = ",".join(channels)
-        channelList = getChannels(channels,10000,100000,youtube) #generate list of parsed channels
-        tempStars = appendYoutubeInfo(channelList,youtube)
-        stars.update(appendGoogleInfo(tempStars))
+        channelList = getChannels(channels,youtube) #generate list of parsed channels
+        stars = appendYoutubeInfo(channelList,youtube)
+        stars.update(appendGoogleInfo(stars))
+
+        #Append to the csv
+        toCSV(stars)
 
 
 #============= get channels ==============#
 #args -> comma seperated of youtube channels
-def getChannels(channels,min_fc,max_fc,youtube):
+def getChannels(channels,youtube):
 
     parsedChannels = []
     channelList = ",".join(channels)
@@ -133,7 +132,7 @@ def getChannels(channels,min_fc,max_fc,youtube):
         videoCount = search_result["statistics"]["videoCount"]
         ID = search_result["id"]
 
-        if min_fc <= int(subCount) <= max_fc :
+        if MIN_SUBS <= int(subCount) <= MAX_SUBS :
             parsedChannels.append(search_result["id"])
 
     print ""
@@ -145,7 +144,7 @@ def getChannels(channels,min_fc,max_fc,youtube):
 #Add all the data for a youtube star that is missing
 def appendYoutubeInfo(channels,youtube):
 
-    tempStars = {}
+    stars = {}
     channelList = ",".join(channels)
 
     search_response = youtube.channels().list(
@@ -157,42 +156,62 @@ def appendYoutubeInfo(channels,youtube):
     #print search_response
     for search_result in search_response.get("items", []):
 
-        #print search_result
+        #ID for reference
         ID = search_result["id"]
+        stars[ID] = {}
 
+        #Append the channel title, url, etc
+        stars[ID]["name"] = search_result["snippet"]["title"]
+        stars[ID]["store_url"] = "https://fandemic.co/" + search_result["snippet"]["title"].replace(' ', '-').replace("'","").lower()
+        stars[ID]["googlePlusUserId"] = search_result["contentDetails"]["googlePlusUserId"]
+        print stars[ID]["store_url"]
 
         emails = get_emails(search_result["snippet"]["description"])
+        stars[ID]["email"] = []
         for email in emails:
+            stars[ID]["email"].append(email)
             print email
 
 
-
-        tempStars[ID] = search_result["contentDetails"]
-
-    return tempStars
+    return stars
 
 
 #Checks if the stars google+ profile has an email address
-def appendGoogleInfo(tempStars):
+def appendGoogleInfo(stars):
 
-    for key in tempStars:
+    for key in stars:
 
         try:
-            url = "https://plus.google.com/" + tempStars[key]["googlePlusUserId"] + "/about"
+            url = "https://plus.google.com/" + stars[key]["googlePlusUserId"] + "/about"
             web_soup = soup(urllib2.urlopen(url),'lxml')
             contact = web_soup.find(name="div", attrs={'role': 'main'})
             emails = get_emails(str(contact))
             for email in emails:
                 print email
-                tempStars[key]["email"] = email
+                stars[key]["email"].append(email)
         except KeyError:
             print "fuckin key error"
 
-    return tempStars
+    return stars
 
 #Append the description
 def appendInstaInfo(stars):
     return 0
+
+def toCSV(stars):
+    with open('contacts.csv', 'a') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',',
+                                quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+        for key in stars:
+            emails = ','.join(stars[key]["email"])
+            writer.writerow([stars[key]["name"],
+                            stars[key]["store_url"],
+                            emails])
+
+def toMongoDB(stars):
+    return 0
+
 
 def get_emails(s):
     """Returns an iterator of matched emails found in string s."""
