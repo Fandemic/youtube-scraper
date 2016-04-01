@@ -9,6 +9,7 @@ Description: Finds all youtubers related to specified
              to finish gathering info.
 """
 import pymongo
+from pymongo import MongoClient
 import csv
 import thread
 from apiclient.discovery import build
@@ -91,13 +92,6 @@ def findStars(query_string):
 
         pageToken = search_response["nextPageToken"]
         print "Page " + str(i) + "... " + pageToken
-
-
-
-
-        emails = get_emails("jeff at hellothere.com works and jeff@helloworld.co works")
-        for email in emails:
-            print email
 
 
         print "Scraping Channels for page " + str(i)
@@ -190,7 +184,15 @@ def appendYoutubeInfo(channels,youtube):
 
         #image
         stars[ID]["image"] = {}
-        stars[ID]["image"]["banner"] = search_result["brandingSettings"]["image"]["bannerMobileHdImageUrl"]
+
+        try:
+            stars[ID]["image"]["banner"] = search_result["brandingSettings"]["image"]["bannerMobileHdImageUrl"]
+        except KeyError:
+            print "Can't find the banner, providing the basic bitch one"
+            try:
+                stars[ID]["image"]["banner"] = search_result["brandingSettings"]["image"]["bannerMobileHdImageUrl"]
+            except KeyError:
+                print "Basic bitch one did not work either. Looks like you're screwed..."
 
         #check for emails in description
         emails = get_emails(search_result["snippet"]["description"].lower())
@@ -272,6 +274,8 @@ def appendInstagramInfo(stars):
             try:
                 url = url_formatter(stars[key]["url"]["instagram"])
 
+                print url
+
                 web_soup = soup(urllib2.urlopen(url),'lxml')
 
                 infoString = web_soup.find('body')
@@ -329,8 +333,6 @@ def getImportantURLs(stars):
 
 
 def toCSV(stars):
-
-    print stars
 
     with open('contacts.csv', 'a') as csvfile:
         writer = csv.writer(csvfile, delimiter=',',
