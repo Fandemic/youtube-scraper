@@ -9,7 +9,7 @@ Description: Finds all youtubers related to specified
              to finish gathering info.
 """
 import pymongo
-from pymongo import MongoClient
+from pymongo import MongoClient, errors
 import csv
 import thread
 from apiclient.discovery import build
@@ -23,12 +23,14 @@ from bs4 import BeautifulSoup as soup
 
 #===============SETTINGS(only make changes here!)==============#
 KEYWORDS = ["fitness","aesthetics","workout","bodybuilding",
-            "gym","lifting","crossfit","exercise","callisthenics",
-            "strength","weightlifting"]
-MAX_NUM_RESULTS = 50000
-SEARCH_DEPTH = 10
-MIN_SUBS = 10000
-MAX_SUBS = 150000
+            "gym","lifting","crossfit","exercise","callisthenics", "isometrics"
+            "strength","weightlifting","muscle","muscularity","fitness sports",
+            "natural transformation", "fitness transformation",
+            "athlete","fit women","aerobics","powerlifting","healthy eating", "training"]
+MAX_SEARCH_DEPTH = 50
+MIN_SUBS = 30000
+MAX_SUBS = 10000000000
+OUTPUT_FILE = "contacts_fitness_v2_MoneyMaker.csv"
 #================================================================#
 
 #===================== API KEYS =========================#
@@ -70,7 +72,9 @@ def findStars(query_string):
     pageToken = ""
     i = 1
 
-    while (i <= SEARCH_DEPTH):
+    search_depth = MAX_SEARCH_DEPTH
+
+    while (i <= search_depth):
         channels = []
        # Call the search.list method to retrieve results matching the specified
        # query term.
@@ -84,26 +88,27 @@ def findStars(query_string):
          type="channel"
         ).execute()
 
+        search_depth = search_response["pageInfo"]["totalResults"] / search_response["pageInfo"]["resultsPerPage"]
+
         for search_result in search_response.get("items", []):
 
             if search_result["id"]["kind"] == "youtube#channel":
 
                 channels.append(search_result["id"]["channelId"])
 
-        pageToken = search_response["nextPageToken"]
-        print "Page " + str(i) + "... " + pageToken
+        print "Scraping keyword " + query_string
 
 
         print "Scraping Channels for page " + str(i)
         channelList = getChannels(channels,youtube) #generate list of parsed channels
 
-        print "Getting youtube info for page " + str(i)
+        print "Getting youtuber's info for page " + str(i)
         stars = appendYoutubeInfo(channelList,youtube)
 
-        print "Getting important URL's from page " + str(i)
+        print "Getting social media URL's from page " + str(i)
         stars.update(getImportantURLs(stars))
 
-        print "Getting Google+ info for page " + str(i)
+        print "Checking Google+ for Enail Address, page " + str(i)
         stars.update(appendGoogleInfo(stars))
 
         print "Checking Facebook for Email Address, page " + str(i)
@@ -112,11 +117,14 @@ def findStars(query_string):
         print "Checking Instagram for Email Address, page " + str(i)
         stars.update(appendInstagramInfo(stars))
 
-        print "Generating CSV for page " + str(i)
-        toCSV(stars)
-
-        print "Creating MongoDB records for page " + str(i)
+        print "Creating MongoDB/CSV records for page " + str(i)
         toMongoDB(stars)
+
+        try:
+            pageToken = search_response["nextPageToken"]
+        except KeyError:
+            print "Max depth has been reached. Moving to next keyword."
+            break
 
         i += 1
 
@@ -177,7 +185,8 @@ def appendYoutubeInfo(channels,youtube):
         try:
             stars[ID]["googlePlusUserId"] = search_result["contentDetails"]["googlePlusUserId"]
         except KeyError:
-            print stars[ID]["name"], "is missing a Google+ id"
+            #print stars[ID]["name"], "is missing a Google+ id"
+            pass
 
         #channel statistics
         stars[ID]["statistics"] = search_result["statistics"]
@@ -188,11 +197,13 @@ def appendYoutubeInfo(channels,youtube):
         try:
             stars[ID]["image"]["banner"] = search_result["brandingSettings"]["image"]["bannerMobileHdImageUrl"]
         except KeyError:
-            print "Can't find the banner, providing the basic bitch one"
+            #print "Can't find the banner, providing the basic bitch one"
+            pass
             try:
                 stars[ID]["image"]["banner"] = search_result["brandingSettings"]["image"]["bannerMobileHdImageUrl"]
             except KeyError:
-                print "Basic bitch one did not work either. Looks like you're screwed..."
+                #print "Basic bitch one did not work either. Looks like you're screwed..."
+                pass
 
         #check for emails in description
         emails = get_emails(search_result["snippet"]["description"].lower())
@@ -222,7 +233,8 @@ def appendGoogleInfo(stars):
             for email in emails:
                 stars[key]["email"].append(email)
         except KeyError:
-            print "fuckin key error"
+            #print "fuckin key error"
+            pass
 
     return stars
 
@@ -246,16 +258,18 @@ def appendFacebookInfo(stars):
                     infoString = web_soup.find(name="div", attrs={'data-id': 'page_info'})
                     emails = get_emails(str(infoString).lower())
                     for email in emails:
-                        print email
+                        #print email
                         stars[key]["email"].append(email)
 
                 except urllib2.HTTPError:
-                    print "Invalid Facebook URL Format :("
+                    #print "Invalid Facebook URL Format :("
+                    pass
                 except:
                     web_soup = soup(urllib2.urlopen(url),'lxml')
 
             except KeyError:
                 print "fuckin key error"
+                pass
 
     return stars
 
@@ -274,7 +288,7 @@ def appendInstagramInfo(stars):
             try:
                 url = url_formatter(stars[key]["url"]["instagram"])
 
-                print url
+                #print url
 
                 web_soup = soup(urllib2.urlopen(url),'lxml')
 
@@ -282,13 +296,15 @@ def appendInstagramInfo(stars):
 
                 emails = get_emails(str(infoString).lower())
                 for email in emails:
-                    print email
+                    #print email
                     stars[key]["email"].append(email)
 
             except urllib2.HTTPError:
-                print "Invalid Instagram URL Format :("
+                #print "Invalid Instagram URL Format :("
+                pass
             except KeyError:
-                print "instagram fuckin key error"
+                #print "instagram fuckin key error"
+                pass
 
 
     return stars
@@ -327,39 +343,51 @@ def getImportantURLs(stars):
 
 
         except KeyError:
-            print "fuckin key error"
+            #print "fuckin key error"
+            pass
 
     return stars
 
 
-def toCSV(stars):
 
-    with open('contacts.csv', 'a') as csvfile:
+def toCSV(star):
+
+    with open(OUTPUT_FILE, 'a') as csvfile:
         writer = csv.writer(csvfile, delimiter=',',
                                 quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-        for key in stars:
-            stars[key]["email"] = list(set(stars[key]["email"]))
-            emails = ','.join(stars[key]["email"])
+        star["email"] = list(set(star["email"]))
+        emails = ','.join(star["email"])
 
-            try:
-                writer.writerow([stars[key]["name"],
-                                stars[key]["url"]["store"],
-                                stars[key]["statistics"]["subscriberCount"],
-                                stars[key]["statistics"]["viewCount"],
-                                stars[key]["url"]["facebook"],
-                                stars[key]["url"]["instagram"],
-                                emails])
-            except UnicodeEncodeError:
-                print "Record failed to write to CSV because of unicode error";
+        try:
+            writer.writerow([star["name"],
+                            star["url"]["store"],
+                            star["statistics"]["subscriberCount"],
+                            star["statistics"]["viewCount"],
+                            star["url"]["facebook"],
+                            star["url"]["instagram"],
+                            emails])
+        except UnicodeEncodeError:
+            #print "Record failed to write to CSV because of unicode error"
+            pass
+
 
 
 def toMongoDB(stars):
-    client = MongoClient('localhost', 27017)
+
+    db = MongoClient('45.79.159.210', 27017).fandemic
     db = client.fandemic
+
+    #Open mongoDB database
     for key in stars:
-        result = db.stars.insert_one(stars[key])
-        print result
+
+        #checks if the stars ID is unique
+        try:
+            result = db.stars.insert_one(stars[key])
+            toCSV(stars[key])
+        except pymongo.errors.DuplicateKeyError:
+            #print "Star is already in DB bro!"
+            pass
 
 
 def get_emails(s):
