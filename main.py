@@ -19,6 +19,7 @@ from optparse import OptionParser
 import os.path
 import re
 import urllib2
+from httplib import BadStatusLine
 from bs4 import BeautifulSoup as soup
 
 #===============SETTINGS(only make changes here!)==============#
@@ -27,7 +28,7 @@ KEYWORDS = ["fitness","aesthetics","workout","bodybuilding",
             "strength","weightlifting","muscle","muscularity","fitness sports",
             "natural transformation", "fitness transformation",
             "athlete","fit women","aerobics","powerlifting","healthy eating", "training"]
-MAX_SEARCH_DEPTH = 50
+MAX_SEARCH_DEPTH = 30
 MIN_SUBS = 30000
 MAX_SUBS = 10000000000
 OUTPUT_FILE = "contacts_fitness_v2_MoneyMaker.csv"
@@ -76,17 +77,30 @@ def findStars(query_string):
 
     while (i <= search_depth):
         channels = []
-       # Call the search.list method to retrieve results matching the specified
-       # query term.
-        search_response = youtube.search().list(
-         q=query_string,
-         part="id",
-         maxResults=50,
-         regionCode="US",
-         relevanceLanguage= "en",
-         pageToken=pageToken,
-         type="channel"
-        ).execute()
+        # Call the search.list method to retrieve results matching the specified
+        # query term.
+
+        try:
+            search_response = youtube.search().list(
+             q=query_string,
+             part="id",
+             maxResults=50,
+             regionCode="US",
+             relevanceLanguage= "en",
+             pageToken=pageToken,
+             type="channel"
+            ).execute()
+        except Exception, e:
+            "can't connect.. WTF!!!! trying again"
+            search_response = youtube.search().list(
+             q=query_string,
+             part="id",
+             maxResults=50,
+             regionCode="US",
+             relevanceLanguage= "en",
+             pageToken=pageToken,
+             type="channel"
+            ).execute()
 
         search_depth = search_response["pageInfo"]["totalResults"] / search_response["pageInfo"]["resultsPerPage"]
 
@@ -122,6 +136,7 @@ def findStars(query_string):
 
         try:
             pageToken = search_response["nextPageToken"]
+            print pageToken
         except KeyError:
             print "Max depth has been reached. Moving to next keyword."
             break
@@ -375,11 +390,14 @@ def toCSV(star):
 
 def toMongoDB(stars):
 
-    db = MongoClient('45.79.159.210', 27017).fandemic
+    client = MongoClient('45.79.159.210', 27017)
     db = client.fandemic
 
     #Open mongoDB database
     for key in stars:
+
+        stars[key]['active'] = False
+        stars[key]['category'] = "fitness"
 
         #checks if the stars ID is unique
         try:
@@ -388,6 +406,8 @@ def toMongoDB(stars):
         except pymongo.errors.DuplicateKeyError:
             #print "Star is already in DB bro!"
             pass
+
+    client.close()
 
 
 def get_emails(s):
